@@ -154,14 +154,39 @@ function(X, Z, y, taus, control, ...)
 }
 
 "rqpd.fit.pfe" <-
-function(X, Z, y, taus, tauw, lambda, control, ...)
+function(X, Z, y, taus, tauw, lambda, control,
+  ALPHAS_PFE,
+  DATA_PFE,
+  ENDO_COVAR_PFE,
+  ...)
 {
     N <- length(y)
     p <- ncol(X)
     n <- ncol(Z)
     K <- length(taus)
 
-    y <- c(tauw %x% y)
+    if (!is.null(ALPHAS_PFE)){
+      #message("alpha used in optimization process: ", ALPHAS_PFE)
+      #Calculate matrix of adjusted response variables
+      y <- y - t(ALPHAS_PFE) %x% DATA_PFE[, ENDO_COVAR_PFE]
+      #Own specification that accounts for dynamic setting
+      #and weigths the response variable
+      tauw_matrix <- matrix(
+        tauw,
+        nrow = dim(y)[1],
+        ncol = dim(y)[2],
+        by = 1
+      )
+      y <- c(as.vector(tauw_matrix * y))
+    }
+    else{
+      #If no alpha given perform usuall rqpd regression
+      y <- c(tauw %x% y)
+      message(
+        "Modification in rqpd is not needed and original specification is used"
+      )
+    }
+
     D <- cbind(as(tauw, "matrix.diag.csr") %x% X, cbind(tauw) %x% Z)
     rhs <- c((tauw*(1 - taus)) %x% (t(X)%*%rep(1, N)),
         sum(tauw*(1 - taus)) * (t(Z) %*% rep(1, N)))
