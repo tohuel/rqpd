@@ -1,10 +1,13 @@
 "rqpd" <-
-function(formula, panel = panel(), data=parent.frame(), na.action, subset, 
-    contrasts=NULL, control = NULL, ...)
+function(formula, panel = panel(), data=parent.frame(), na.action, subset,
+    contrasts=NULL, control = NULL,
+    ALPHAS = NULL,
+    ENDO_COVAR = NULL,
+    ...)
 {
 
   # "Reveal" options in panel  ## Also 223--225 & 263--264
-  for (opt in 1:length(panel)) 
+  for (opt in 1:length(panel))
     assign(names(panel)[opt], panel[[opt]])
   # This is clever, but the reader has no idea at this point what variables
   # are set by this loop -- Ok, how about this, then:
@@ -19,16 +22,16 @@ function(formula, panel = panel(), data=parent.frame(), na.action, subset,
   formula  <- switch(class(formula)[1], Formula=formula, Formula(formula))
   if (method == "pfe") {
     # Expected layout: y ~ x1 + ... | s
-    if (any(length(formula) != c(1, 2)) | 
+    if (any(length(formula) != c(1, 2)) |
         length(all.vars(formula(formula, lhs=0, rhs=2))) > 1)
       stop("Formula must on the form 'y ~ x + ... | s', see documentation.")
   } else if (method == "cre") {
     # Expected layout: y ~ x + ... | s | z + ...
-    if (any(length(formula) != c(1, 3)) | 
+    if (any(length(formula) != c(1, 3)) |
         length(all.vars(formula(formula, lhs=0, rhs=2))) > 1)
       stop(paste("Formula must be on the form 'y ~ x + ... | s | z + ...'",
               "see documentation."))
-  } else { 
+  } else {
     stop("Formula processing not implemeted for this method.")
   }
 
@@ -56,7 +59,7 @@ function(formula, panel = panel(), data=parent.frame(), na.action, subset,
   X <- as(X ,"matrix.csr")
 
   ## Make Z matrix
-  rhs.idx <- switch(method, pfe=2L, cre=c(2L, 3L), stop("Not implemented.")) 
+  rhs.idx <- switch(method, pfe=2L, cre=c(2L, 3L), stop("Not implemented."))
   mtZ <- delete.response(terms(formula, data = data, rhs = rhs.idx))
   attr(mtZ, "intercept") <- 0L
   ids <- m[,attr(mtZ,"term.labels")[1]]
@@ -73,20 +76,24 @@ function(formula, panel = panel(), data=parent.frame(), na.action, subset,
     # Perhaps deal with lambda=0, and singular design here.
   } else if (method == "cre") {
     if (det(t(cbind(X, Z)) %*% cbind(X, Z)) < ztol) stop("Singular design.")
-  } 
+  }
 
   ## Set default control parameters
   if(is.null(control)) control <- sfn.control(warn.mesg = FALSE)
 
   ## Call fitting routines:
-  f <- switch(method, 
-      pfe = rqpd.fit.pfe(X, Z, y, taus, tauw, lambda, control, ...),
+  f <- switch(method,
+      pfe = rqpd.fit.pfe(X, Z, y, taus, tauw, lambda, control,
+        ALPHAS_PFE = ALPHAS,
+        DATA_PFE = data,
+        ENDO_COVAR_PFE = ENDO_COVAR,
+        ...),
       cre = rqpd.fit.cre(X, Z, y, taus, control, ...),
       stop("No fitting routine for method."))
 
   fit <- list(coefficients = f$coef, residuals = f$resid)
   class(fit) <- c(paste("rqpd.", method, sep=""), "rqpd")
-  
+
   if (method == "pfe") {
     names(fit$coef) <- c(paste(rep(Xnames, length(taus)), "[",
       rep(taus, each=length(Xnames)),"]", sep = ""), Znames)
@@ -109,7 +116,7 @@ function(formula, panel = panel(), data=parent.frame(), na.action, subset,
 }
 
 "panel" <-
-function(method="pfe", taus=1:3/4, tauw=c(.25,.5,.25), 
+function(method="pfe", taus=1:3/4, tauw=c(.25,.5,.25),
     lambda=1, cre="m", ztol=1e-5)
 {
   # Argument validating and defaults:
@@ -128,32 +135,32 @@ function(method="pfe", taus=1:3/4, tauw=c(.25,.5,.25),
   list(method=method, taus=taus, tauw=tauw, lambda=lambda, cre=cre, ztol=ztol)
 }
 
-"rqpd.fit.cre" <- 
+"rqpd.fit.cre" <-
 function(X, Z, y, taus, control, ...)
 {
   p <- ncol(X) + ncol(Z)
   K <- length(taus)
   res <- do.call(cbind, lapply(taus, function(tau) {
-      tmp <- rq.fit.sfn(cbind(X, Z), y, tau=tau, control=control) 
+      tmp <- rq.fit.sfn(cbind(X, Z), y, tau=tau, control=control)
       c(tmp$it, tmp$ierr, tmp$coef)
-    }))  
+    }))
   fit <- list(coefficients=c(res[-(1:2),]), it=res[1,], ierr=res[2,])
-  if(any((fit$ierr != 0) && (fit$it < 5))) 
+  if(any((fit$ierr != 0) && (fit$it < 5)))
     warning(paste("Dubious convergence:", sfnMessage(fit$ierr)))
-  fit$residuals <- rep(y, K) - 
+  fit$residuals <- rep(y, K) -
     (as(K, "matrix.diag.csr") %x% cbind(X, Z)) %*% fit$coef
   fit$contrasts <- attr(X, "contrasts")
   fit
 }
 
-"rqpd.fit.pfe" <- 
+"rqpd.fit.pfe" <-
 function(X, Z, y, taus, tauw, lambda, control, ...)
 {
     N <- length(y)
     p <- ncol(X)
-    n <- ncol(Z) 
+    n <- ncol(Z)
     K <- length(taus)
-      
+
     y <- c(tauw %x% y)
     D <- cbind(as(tauw, "matrix.diag.csr") %x% X, cbind(tauw) %x% Z)
     rhs <- c((tauw*(1 - taus)) %x% (t(X)%*%rep(1, N)),
@@ -165,7 +172,7 @@ function(X, Z, y, taus, tauw, lambda, control, ...)
         }
     f <- rq.fit.sfn(D, y, rhs = rhs, control = control)
 
-    if((f$ierr != 0) && (f$it < 5)) 
+    if((f$ierr != 0) && (f$it < 5))
         warning(paste("Dubious convergence:", sfnMessage(f$ierr)))
     fit <- list(coefficients = f$coef, ierr = f$ierr, it = f$it)
     fit$contrasts <- attr(X, "contrasts")
@@ -213,15 +220,15 @@ function(x, ...)
 	invisible(x)
 }
 
-"coef.rqpd" <- 
+"coef.rqpd" <-
 function(object, ...) object$coef
 
 "boot.rqpd"<-
-function (ids, X, Z, y, panel, control, 
+function (ids, X, Z, y, panel, control,
 	R = 200, bsmethod = "wxy", ...)
 {
   # "Reveal" options in panel
-  for (opt in 1:length(panel)) 
+  for (opt in 1:length(panel))
     assign(names(panel)[opt], panel[[opt]])
 
   p <- switch(method,
@@ -260,9 +267,9 @@ function (ids, X, Z, y, panel, control,
 
 "summary.rqpd" <- function (object, se = "boot", covariance = FALSE, ...)
 {
-  for (elem in 1:length(object)) 
+  for (elem in 1:length(object))
     assign(names(object)[elem], object[[elem]])
-  
+
   cnames <- names(coef)
   n <- length(y)
   p <- length(coef)
@@ -275,18 +282,18 @@ function (ids, X, Z, y, panel, control,
   }
   else stop("Only boot method for rqpd objects")
   coef <- array(coef, c(p, 4))
-  dimnames(coef) <- list(cnames, 
+  dimnames(coef) <- list(cnames,
       c("Value", "Std. Error", "t value", "Pr(>|t|)"))
   coef[, 2] <- serr
   coef[, 3] <- coef[, 1]/coef[, 2]
   coef[, 4] <- if(rdf > 0) 2 * (1 - pt(abs(coef[, 3]), rdf)) else NA
   object <- object[c("call")]
-  if (covariance == TRUE) object$cov <- cov 
+  if (covariance == TRUE) object$cov <- cov
   object$coefficients <- coef
   object$rdf <- rdf
   object$panel <- panel
   object$ncolX <- ncol(X)
-  class(object) <- c(paste("summary.rqpd.", panel$method, sep=""), 
+  class(object) <- c(paste("summary.rqpd.", panel$method, sep=""),
       "summary.rqpd")
   object
 }
