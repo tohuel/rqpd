@@ -166,7 +166,6 @@ function(X, Z, y, taus, tauw, lambda, control,
     K <- length(taus)
 
     if (!is.null(ALPHAS_PFE)){
-      #message("alpha used in optimization process: ", ALPHAS_PFE)
       #Calculate matrix of adjusted response variables
       y <- y - t(ALPHAS_PFE) %x% DATA_PFE[, ENDO_COVAR_PFE]
       #Own specification that accounts for dynamic setting
