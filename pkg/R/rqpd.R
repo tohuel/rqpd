@@ -166,10 +166,10 @@ function(X, Z, y, taus, tauw, lambda, control,
     K <- length(taus)
 
     if (!is.null(ALPHAS_PFE)){
-      #Calculate matrix of adjusted response variables
+      # Calculate matrix of adjusted response variables.
       y <- y - t(ALPHAS_PFE) %x% DATA_PFE[, ENDO_COVAR_PFE]
-      #Own specification that accounts for dynamic setting
-      #and weigths the response variable
+      # Specification that accounts for a dynamic setting
+      # and weigths the response variable.
       tauw_matrix <- matrix(
         tauw,
         nrow = dim(y)[1],
@@ -179,7 +179,7 @@ function(X, Z, y, taus, tauw, lambda, control,
       y <- c(as.vector(tauw_matrix * y))
     }
     else{
-      #If no alpha given perform usuall rqpd regression
+      # If no alpha given perform original rqpd regression.
       y <- c(tauw %x% y)
       message(
         "Modification in rqpd is not needed and original specification is used"
